@@ -1,0 +1,149 @@
+================================================================================
+BIONIC BUTTERFLY — BUILD KIT  (S-DiY 2-Servo Flapper, v1.0)
+================================================================================
+Folder:  C:\Users\Siddhant rahate\bionic-butterfly\
+Status:  FIRMWARE VERIFIED (compiles clean, 8458 bytes / 27% flash, 434 B RAM)
+         arduino-cli 1.5.1  +  arduino:avr:1.8.8  +  Nikkilae/PPMReader
+
+This kit turns the 4 downloaded files into a flying RC bionic butterfly.
+The firmware is already compiled. You need: a programmer to flash it, the
+printed parts, and the components below.
+
+--------------------------------------------------------------------------------
+1. WHAT'S IN THIS KIT
+--------------------------------------------------------------------------------
+firmware/
+  firmware.ino            -> the S-DiY flight code (verified-compiling)
+  firmware.ino.hex        -> FLASH THIS (Nano bootloader, 23.8 KB)
+  firmware.ino.with_bootloader.hex -> use only if flashing a blank ATmega
+  build/                  -> all compile artifacts
+lib/
+  PPMReader/              -> vendored Nikkilae PPM-reader (API matches code)
+print/
+  3.STL                  -> servo mount / body cradle        (x1)
+  FC Mount V5.STL        -> Arduino Nano mount               (x1)
+  ARMV5.STL              -> wing arm / pushrod arm            (x2, mirror 2nd)
+  PRINT_PROFILE.txt      -> slicer settings + orientation
+schematics/
+  circuit-original.jpeg  -> the hand-drawn S-DiY wiring
+docs/
+  wing-design-original.jpeg -> the wing mechanism drawing
+tools/
+  bin/arduino-cli.exe     -> the compiler used to verify this build
+.cli/arduino-cli.yaml     -> build config (points at Arduino15)
+
+--------------------------------------------------------------------------------
+2. COMPONENTS / BOM
+--------------------------------------------------------------------------------
+[ ELECTRONICS ]
+  - Arduino Nano (ATmega328P)                     x1
+  - 5V hobby servo, ~12g metal-gear (MG90S/DS)    x2   (NOT SG90 — too weak)
+  - PPM RC receiver, 8ch                          x1
+  - RC transmitter, 6+ ch (FlySky i6/T8 style)    x1
+  - Status LED 5mm + 220Ω resistor               x1
+[ POWER ]
+  - Li-Po 2S ~500 mAh                             x1
+  - 5V regulator (7805 / AMS1117-5, TO-220)       x1
+  - JST / servo connectors, silicone wire         assorted
+[ AIRFRAME ]
+  - Wing membrane (Mylar / kite cloth / tape sheet)  x2
+  - Carbon-fibre rod or printed spar (wing vein)      x2
+  - Pushrods / servo horns                             x2 each
+  - Foam board / light balsa (fuselage body)
+  - CA glue, double-sided tape, zip ties
+
+--------------------------------------------------------------------------------
+3. FLASH THE FIRMWARE
+--------------------------------------------------------------------------------
+Option A — Arduino IDE (easiest):
+  1. Open firmware/firmware.ino in the Arduino IDE.
+  2. Board:  Arduino Nano
+     Processor: ATmega328P (Old Bootloader)  [most clones need this]
+     Port: your Nano's COM port
+  3. Sketch > Upload. Done.
+
+Option B — command line (arduino-cli, already in tools/bin):
+  set PATH=%USERPROFILE%\bionic-butterfly\tools\bin;%PATH%
+  arduino-cli upload -p COM3 -b arduino:avr:nano:cpu=atmega328old ^
+    --input-dir C:\Users\Siddhant rahate\bionic-butterfly\firmware\build
+  (replace COM3 with your Nano's port; use cpu=atmega328 for new-bootloader Nanos)
+
+The .hex is pre-built — no compile needed unless you edit the code.
+
+--------------------------------------------------------------------------------
+4. WIRING  (matches circuit-original.jpeg + firmware pins)
+--------------------------------------------------------------------------------
+  Nano D2  <- RX PPM signal
+  Nano D4  -> Left servo  signal
+  Nano D5  -> Right servo signal
+  Nano D6  -> LED (via 220Ω)
+  Nano 5V  <- from regulator OUT (NOT directly from battery)
+  Both servos + RX + Nano  <- shared 5V/GND rail fed by the regulator
+  Battery (2S) -> regulator IN -> 5V rail
+  Servo pulse range set in code: 500–2500 µs (extended travel)
+
+  POWER RULE: servos draw current spikes that brown out the Nano if they
+  share its 5V pin. The regulator feeds a SEPARATE rail. This is why the
+  schematic shows the 7805/AMS1117 — do not skip it.
+
+--------------------------------------------------------------------------------
+5. CHANNEL MAP  (from firmware readPPMFiltered calls)
+--------------------------------------------------------------------------------
+  CH1 (steer)     steer/yaw        +/-15°
+  CH2 (elevator)  pitch            +/-15°
+  CH3 (throttle)  flap speed       1050..2000 -> 0.06..0.10 rad/tick
+  CH5 (trim)      steer trim       +/-15°
+  CH6 (raw)       pitch trim       +/-20°  (also perch up-angle when perching)
+  CH7 (switch)    perch mode        >1600 + throttle<1100 => perch
+  CH8 (raw)       LED toggle        >1550 hold 5 ticks => LED ON
+  No PPM signal => FAILSAFE: damp wings to center, LED off.
+
+  Flap math (lines 98-99):
+    outL = 90 + flap + steer + elev + pitchTrim
+    outR = 90 - flap + steer - elev - pitchTrim
+  flap = sin(phase) * 65°   (opposite sign => clap-and-fling)
+  center 90, amplitude 65 => wings sweep 25°..155°.
+
+--------------------------------------------------------------------------------
+6. PRINT THE PARTS  (see print/PRINT_PROFILE.txt)
+--------------------------------------------------------------------------------
+  Material: PLA/PETG, 0.2 mm, 15-20% infill, no supports on mounts.
+  3.STL            x1  (flat on largest face)
+  FC Mount V5.STL x1  (flat, Nano drops in)
+  ARMV5.STL        x2  (stand upright; mirror the 2nd for the other wing)
+  Dry-fit the Nano into the FC mount before gluing. Ream servo holes if tight.
+
+--------------------------------------------------------------------------------
+7. ASSEMBLY ORDER
+--------------------------------------------------------------------------------
+  1. Print + dry-fit parts.
+  2. Solder the 5V regulator to the battery lead; test 5V out with a meter.
+  3. Wire Nano, RX, servos, LED per section 4. Servo horns at center (90°).
+  4. Flash firmware (section 3). LED should blink on link.
+  5. Mount Nano in FC mount; mount servos in the 3.STL cradle.
+  6. Attach ARMV5 arms to servo horns; link arms to wing roots.
+  7. Stretch membrane over spars; glue to arms/body.
+  8. Center all trims on TX. Power on TX FIRST, then butterfly.
+  9. Throttle up slowly — wings should sine-flap. Tune pitch trim (CH6)
+     until it tracks straight. Perch mode (CH7) folds wings for landing.
+
+--------------------------------------------------------------------------------
+8. SAFETY / FAILSAFE
+--------------------------------------------------------------------------------
+  - Guardrail: keep battery away from servos during first spin-up.
+  - If link drops, firmware damps to center (wings level) — land immediately.
+  - Servo writes constrained 5..175° in code; lastPos only updates >=1° to
+    cut jitter. Do not exceed 5V on the servo rail.
+
+--------------------------------------------------------------------------------
+9. NEXT EVOLUTION (optional, ETC portfolio)
+--------------------------------------------------------------------------------
+  - Port to ESP32 (your COM4 DevKit): add WiFi telemetry + OTA tuning.
+  - Add an MPU-6050 IMU for attitude stabilization (replace sine-only flap).
+  - Port the 3 STL parts to STEP for CAD editing.
+  - Simulate clap-and-fling lift in Python before real flight.
+
+Verified build log:
+  arduino-cli 1.5.1 | arduino:avr:1.8.8 | Servo (core) + PPMReader (vendored)
+  Sketch uses 8458 bytes (27%) program, 434 bytes (21%) dynamic memory.
+================================================================================

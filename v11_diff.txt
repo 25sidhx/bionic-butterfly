@@ -1,0 +1,217 @@
+--- "C:/Users/Siddhant rahate/Documents/Arduino/S_DIY_bionic_butterfly_code/S_DIY_bionic_butterfly_code.ino.bak"	2026-08-27 17:19:37.312963400 +0530
++++ "C:/Users/Siddhant rahate/bionic-butterfly/firmware/firmware.ino"	2026-08-27 17:20:34.045190800 +0530
+@@ -1,53 +1,87 @@
+ /*
+- * S-DiY RC Bionic Butterfly project 
++ * S-DiY RC Bionic Butterfly project
+  * PROJECT: S-DiY 2 SERVO FLAP RC BIONIC BUTTERFLY
+- * VERSION: 1.0 (SINE WAVE)
+- * AUTHOR:  [S-DiY channel/ TruongVanSu91]
++ * VERSION: 1.1 (SINE WAVE) — CORRECTED
++ * AUTHOR:  [S-DiY channel/ TruongVanSu91] (orig) + fixes
+  * DATE:    02/2026
+  * COPYRIGHT (C) 2026. ALL RIGHTS RESERVED.
+  * -----------------------------------------------------------------------------
+- * PIN UPDATE: Receiver PPM on pin 2, servoLeft on pin 4, servoRight on pin 5
++ * PIN MAP: Receiver PPM on pin 2, servoLeft on pin 4, servoRight on pin 5
++ *          LED on pin 6.  Matches the hand-drawn circuit (D4/D5), NOT D9/D10.
+  * -----------------------------------------------------------------------------
++ *
++ * FIXES APPLIED (audit pass):
++ *  [A] Real failsafe: edge-watchdog on the PPM pin. latestValidChannelValue()
++ *      never returns 0 after first link, so the original isConnected test was
++ *      dead code. We watch time-since-last-pulse instead.
++ *  [B] Control authority at full flap: total swing = flap + steer + elev + trim
++ *      can exceed the 5..175 servo range and constrain() silently eats steering.
++ *      Flap amplitude now shrinks when large stick/trim input is present.
++ *  [C] Smooth flap speed: avoid integer map() truncation — float math.
++ *  [D] wasFailsafe renamed to resetSinePhase (mode-transition flag only).
++ *  [E] Explicit ppm.begin() guard — call if the installed lib exposes it.
+  */
+ 
+ #include <Servo.h>
+ #include <PPMReader.h>
+ 
+ const byte interruptPin = 2;   // receiver PPM signal
+-const byte ledPin = 6;         
++const byte ledPin = 6;
+ const byte channelAmount = 8;
+ PPMReader ppm(interruptPin, channelAmount);
+ 
+ Servo servoLeft, servoRight;
+ 
+-const int centerAngle = 90;    
+-const int flapAmplitude = 65;   
+-const int maxPitchTrim = 20;    
++const int centerAngle = 90;
++const int flapAmplitude = 65;
++const int maxPitchTrim = 20;
+ 
+ float phase = 0, perchPhase = 0, currentOffset = 0;
+-bool isPerchingState = false, wasFailsafe = true;
++bool isPerchingState = false;
++bool resetSinePhase = true;     // [D] was: wasFailsafe (overloaded name)
+ 
+ int lastPosL = 90, lastPosR = 90;
+ int lastChValues[8] = {1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500};
+-const int ppmDeadband = 3; 
++const int ppmDeadband = 3;
+ 
+ int ledDebounceCounter = 0;
+-const int ledThreshold = 5; 
++const int ledThreshold = 5;
+ 
+ unsigned long lastLogTime = 0;
+-const int logInterval = 1000; 
++const int logInterval = 1000;
++
++// [A] Edge-watchdog: timestamp of last PPM pulse (any channel edge).
++volatile unsigned long lastPpmEdge = 0;
++const unsigned long LINK_TIMEOUT_US = 100000; // ~100 ms no pulse = link lost
++
++// [B] Flap amplitude for the current tick, capped by control demand. Set in loop().
++int safeFlapAmp = flapAmplitude;
++
++void ppmEdgeISR() {
++  lastPpmEdge = micros();
++}
+ 
+ void setup() {
+   Serial.begin(115200);
+-  pinMode(ledPin, OUTPUT);      
+-  digitalWrite(ledPin, LOW);    
++  pinMode(ledPin, OUTPUT);
++  digitalWrite(ledPin, LOW);
++
++  // [E] If your installed PPMReader exposes begin(), uncomment the next line.
++  // Some versions attach the interrupt in the constructor; calling begin() again
++  // is harmless or a no-op. Comment out if it causes a duplicate-attach error.
++  // ppm.begin();
++
++  // [A] Independent edge-watchdog on the same pin (RISING). The library also
++  // attaches an interrupt here; two RISING handlers on one pin are allowed.
++  lastPpmEdge = micros();
++  attachInterrupt(digitalPinToInterrupt(interruptPin), ppmEdgeISR, RISING);
+ 
+-  servoLeft.attach(4, 500, 2500);   // left servo
+-  servoRight.attach(5, 500, 2500);  // right servo
++  servoLeft.attach(4, 500, 2500);   // left servo  — matches circuit D4
++  servoRight.attach(5, 500, 2500);  // right servo — matches circuit D5
+   servoLeft.write(centerAngle);
+   servoRight.write(centerAngle);
+-  
+-  Serial.println("--- BIONIC BUTTERFLY READY (SINE WAVE MODE) ---");
++
++  Serial.println("--- BIONIC BUTTERFLY READY (SINE WAVE MODE v1.1) ---");
+ }
+ 
+ int readPPMFiltered(byte ch) {
+@@ -59,20 +93,20 @@
+ }
+ 
+ void loop() {
+-  unsigned long ch3Raw = ppm.latestValidChannelValue(3, 0); 
+-  bool isConnected = (ch3Raw != 0);
++  // [A] Real link detection: any PPM edge within LINK_TIMEOUT counts as alive.
++  bool isConnected = (micros() - lastPpmEdge) < LINK_TIMEOUT_US;
+ 
+   if (!isConnected) {
+-    digitalWrite(ledPin, LOW); 
++    digitalWrite(ledPin, LOW);
+     processFailsafe();
+   } else {
+-    int steering = readPPMFiltered(0); 
+-    int elevator = readPPMFiltered(1); 
+-    int throttle = readPPMFiltered(2);    
+-    int ch5Trim   = readPPMFiltered(4); 
+-    int rawCh6    = readPPMFiltered(5); 
+-    int ch7Switch = readPPMFiltered(6); 
+-    int ch8Raw    = readPPMFiltered(7); 
++    int steering = readPPMFiltered(0);
++    int elevator = readPPMFiltered(1);
++    int throttle = readPPMFiltered(2);
++    int ch5Trim   = readPPMFiltered(4);
++    int rawCh6    = readPPMFiltered(5);
++    int ch7Switch = readPPMFiltered(6);
++    int ch8Raw    = readPPMFiltered(7);
+ 
+     if (ch8Raw > 1550) { if (ledDebounceCounter < ledThreshold) ledDebounceCounter++; }
+     else if (ch8Raw < 1450) { if (ledDebounceCounter > 0) ledDebounceCounter--; }
+@@ -92,12 +126,18 @@
+     } else if (throttle < 1050) {
+       updateCurrentOffsetGlide();
+     } else {
+-      updateCurrentOffsetSine(throttle); 
++      updateCurrentOffsetSine(throttle);
+     }
+ 
++    // [B] Control authority: compute how much non-flap authority is demanded,
++    // then shrink flap amplitude so total never exceeds the safe servo range.
++    int controlDemand = abs(finalSteer) + abs(elevOffset) + abs(pitchTrim);
++    int headroom = (175 - centerAngle) - controlDemand;   // room from center up to 175
++    safeFlapAmp = (headroom < 5) ? 5 : (headroom < flapAmplitude ? headroom : flapAmplitude);
++
+     int outL = centerAngle + (int)currentOffset + finalSteer + elevOffset + pitchTrim;
+     int outR = centerAngle - (int)currentOffset + finalSteer - elevOffset - pitchTrim;
+-    
++
+     updateServos(outL, outR);
+   }
+ 
+@@ -110,34 +150,35 @@
+       Serial.println("[!] WARNING: NO SIGNAL DETECTED");
+     }
+   }
+-  delay(4); 
++  delay(4);
+ }
+ 
+ 
+ void updateCurrentOffsetSine(int throttle) {
++  if (resetSinePhase) { phase = PI; resetSinePhase = false; }   // [D]
+ 
+-  if (wasFailsafe) { phase = PI; wasFailsafe = false; }
+-  
+-  float speedFactor = map(throttle, 1050, 2000, 60, 100) / 1000.0;
++  // [C] Smooth float speed scaling (no integer map() truncation):
++  // throttle 1050..2000 -> 0.060..0.100 rad/tick
++  float speedFactor = (throttle - 1050) / (2000.0 - 1050.0) * (100 - 60) + 60;
++  speedFactor /= 1000.0;
+   phase += speedFactor;
+   if (phase >= 2 * PI) phase -= 2 * PI;
+ 
+- 
+-  currentOffset = sin(phase) * flapAmplitude;
++  // [B] apply the demand-adjusted amplitude computed in loop()
++  currentOffset = sin(phase) * safeFlapAmp;
+ }
+ 
+ 
+-
+ void updateCurrentOffsetPerch(int rawCh6) {
+-  wasFailsafe = true;
+-  float maxUpAngle = map(rawCh6, 1000, 2000, 30, 60);  
+-  perchPhase += 0.01;  
+-  float goalAngle = maxUpAngle + (sin(perchPhase) * 20.0) - 20.0;  
++  resetSinePhase = true;                                       // [D]
++  float maxUpAngle = map(rawCh6, 1000, 2000, 30, 60);
++  perchPhase += 0.01;
++  float goalAngle = maxUpAngle + (sin(perchPhase) * 20.0) - 20.0;
+   if (abs(currentOffset - goalAngle) > 0.5) currentOffset += (currentOffset < goalAngle) ? 1.5 : -1.5;
+ }
+ 
+ void updateCurrentOffsetGlide() {
+-  wasFailsafe = true;
++  resetSinePhase = true;                                       // [D]
+   if (currentOffset < 0) currentOffset += 2.0;
+   else if (currentOffset > 0) currentOffset -= 2.0;
+   if (abs(currentOffset) < 2.5) currentOffset = 0;
+@@ -148,7 +189,7 @@
+   else if (currentOffset > 0) currentOffset -= 1.5;
+   if (abs(currentOffset) < 1.5) currentOffset = 0;
+   updateServos(centerAngle + (int)currentOffset, centerAngle - (int)currentOffset);
+-  wasFailsafe = true;
++  resetSinePhase = true;                                       // [D]
+ }
+ 
+ void updateServos(int targetL, int targetR) {

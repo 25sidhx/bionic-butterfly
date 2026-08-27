@@ -1,0 +1,36 @@
+BIONIC BUTTERFLY — 3D PRINT PROFILE
+=====================================
+Source: "Ctorque 3d models" (3MF, dated 2026-01-13, S-DiY V5)
+Extracted STL parts in this folder:
+  - 3.STL            (32 x 39 x 38 mm)  Servo mount / body cradle
+  - FC Mount V5.STL  (32 x 39 x 38 mm)  Flight-controller (Arduino Nano) mount
+  - ARMV5.STL        (79.7 x 11.5 x 49.3 mm)  Wing arm / pushrod arm — PRINT 2x, MIRRORED
+
+MATERIAL
+  PLA or PETG. 0.4 mm nozzle. Layer 0.2 mm.
+  Infill 15-20% (these are light structural parts, not load-bearing).
+  No brim/raft needed; small footprint, good bed adhesion with a skirt.
+
+ORIENTATION (important for the wing arm)
+  - 3.STL and FC Mount V5.STL: print flat on the largest face. No supports.
+  - ARMV5.STL: this is the long thin arm (≈80 mm long, only 11.5 mm wide).
+      Print it STANDING on its short end (long axis vertical) so layer lines
+      run along the arm length — this gives maximum bending strength where the
+      servo torque loads it. Expect a tall, narrow print; add a 5 mm brim to
+      stop it tipping. Print ONE, then mirror the mesh in your slicer for the
+      other wing (or print a second with X-axis mirrored transform).
+
+QUANTITY
+  3.STL      x1
+  FC Mount   x1
+  ARMV5      x2 (one + one mirrored)
+
+POST-PROCESS
+  - Ream the servo-spline hole / screw bosses with a 2 mm drill if tight.
+  - Dry-fit the Nano into FC Mount V5 before gluing — the mount is sized for
+    a standard 18x45 mm Nano PCB.
+  - Arms push onto the servo horn; drill a 1.5 mm hole through the arm's
+    link eye if you want a clevis pin instead of CA-gluing the pushrod.
+
+ESTIMATED PRINT TIME (0.2 mm, single extruder)
+  Mounts ~25 min each, arm ~40 min each  =>  ~2.5 h total for all 4 pieces.

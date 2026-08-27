@@ -1,0 +1,15 @@
+# Build artifacts (compiled output)
+firmware/build/
+firmware/build-v11/
+firmware/_old_original/
+
+# Backups
+*.bak
+
+# OS noise
+Thumbs.db
+.DS_Store
+
+# Toolchain (download separately)
+tools/
+*.zip
